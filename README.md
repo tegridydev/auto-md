@@ -2,6 +2,7 @@
 
 ~auto~md~ is a mini python based tool designed to convert various types of files and GitHub repositories into LLM-ready Markdown documents
 
+![screen](auto-md-gui.png)
 
 ## Features
 

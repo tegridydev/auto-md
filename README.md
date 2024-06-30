@@ -1,8 +1,8 @@
 # ~auto~md~
 
-~auto~md~ is a Python tool that converts various file types and GitHub repositories into Markdown documents (.md) optimized for large language models (LLMs)
+### Python tool that converts various file types and GitHub repositories into Markdown documents (.md) optimized for quick RAG/indexing via large language models (LLMs)
 
-![screen](auto-md-gui.png)
+![screen](auto-md-gui-screen.png)
 
 ## Features
 
@@ -15,7 +15,7 @@
 
 | Category | Extensions |
 |----------|------------|
-| Text | .txt, .text, .log, .log.1, .log.2 |
+| Text | .txt, .text, .log |
 | Markdown | .md, .markdown, .mdown, .mkdn, .mkd, .mdwn, .mdtxt, .mdtext |
 | Web | .html, .htm, .xhtml, .shtml, .css, .scss, .sass, .less |
 | Programming | .py, .pyw, .js, .jsx, .ts, .tsx, .java, .c, .cpp, .cs, .go, .rb, .php, .swift, .kt |
@@ -28,7 +28,7 @@
 
 1. Install Python 3.7 or newer
 
-2. Download this project:
+2. Download this project (or clone repo like normal):
    - Click the green "Code" button above
    - Choose "Download ZIP"
    - Extract the ZIP file
@@ -67,7 +67,9 @@ Let's say you have the following files in a folder called "my_project":
 
 ### Output
 
-After processing with Auto MD, you would get a single Markdown file (`output.md`) that looks like this:
+After processing with Auto MD, you would get a single Markdown file (`output.md`) that looks like the example below
+
+This single .md file contains all the content from your input files, with a table of contents at the top for easy navigation and referencing / indexing via LLM models
 
 ```markdown
 # Auto MD Output
@@ -119,4 +121,3 @@ After processing with Auto MD, you would get a single Markdown file (`output.md`
 (Content of styles.css)
 ```
 
-This single .md file contains all the content from your input files, with a table of contents at the top for easy navigation and referencing / indexing via LLM models.

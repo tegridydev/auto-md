@@ -121,3 +121,51 @@ This single .md file contains all the content from your input files, with a tabl
 (Content of styles.css)
 ```
 
+## Terminal
+
+To use Auto MD from the command line, run the following command:
+
+```bash
+python terminal.py [options]
+```
+
+### Options
+
+- `-i`, `--input`: Input file(s) or folder(s) (required)
+- `-o`, `--output`: Output file or folder (required)
+- `-s`, `--single-file`: Combine all input files into a single output file (default: False)
+- `-r`, `--repo-depth`: Depth for GitHub repository cloning (default: None)
+- `-m`, `--include-metadata`: Include metadata in output (default: True)
+- `-t`, `--include-toc`: Include table of contents in output (default: True)
+- `-v`, `--verbose`: Enable verbose output (default: False)
+- `-g`, `--gitignore`: Path to a .gitignore file to use for excluding files (default: None)
+- `-x`, `--ignore-paths`: Comma-separated list of paths to ignore (default: None)
+
+### Examples
+
+1. Process a single text file and save the output to a single Markdown file:
+
+```bash
+python terminal.py -i input.txt -o output.md -s
+```
+
+2. Process a folder and save each file as a separate Markdown file:
+
+```bash
+python terminal.py -i input_folder -o output_folder
+```
+
+3. Process a GitHub repository and save the output to a single Markdown file, excluding files listed in a .gitignore file:
+
+```bash
+python terminal.py -i https://github.com/user/repo.git -o output.md -s -ig /path/to/.gitignore
+```
+
+4. Ignore some paths
+
+```bash
+python terminal.py -i input_folder -o output_folder -ip docs tests
+```
+
+This will not include the `docs` and `tests` path in the processing
+

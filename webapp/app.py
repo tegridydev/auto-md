@@ -17,15 +17,25 @@ socketio = SocketIO(app)
 
 class WebSocketHandler(logging.Handler):
     def emit(self, record):
-        socketio.emit('log', self.format(record))
+        request_id = getattr(record, 'request_id', None)
+        if request_id:
+            socketio.emit('log', self.format(record), room=request_id)
 
 logging.basicConfig(level=logging.INFO)
+
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger('socketio').setLevel(logging.ERROR)
+logging.getLogger('engineio').setLevel(logging.ERROR)
+logging.getLogger('engineio.server').setLevel(logging.ERROR)
+logging.getLogger('engineio.client').setLevel(logging.ERROR)
+
 logger = logging.getLogger()
 socket_handler = WebSocketHandler()
 logger.addHandler(socket_handler)
 
 class ProcessingJob:
-    def __init__(self):
+    def __init__(self, request_id):
+        self.request_id = request_id
         self.temp_dir = Path(tempfile.gettempdir()) / f"automd_temp_{uuid.uuid4().hex}"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.progress = 0
@@ -39,6 +49,9 @@ def index():
 @app.route('/process', methods=['POST'])
 def process():
     try:
+        request_id = str(uuid.uuid4())
+        job = ProcessingJob(request_id)
+        
         input_files = request.files.getlist('input_files')
         github_urls = request.form.getlist('github_urls[]')
         single_file = request.form.get('single_file') == 'true'
@@ -47,8 +60,6 @@ def process():
         include_toc = request.form.get('include_toc') == 'true'
         output_filename = request.form.get('output_filename', 'output.md')
 
-        job = ProcessingJob()
-        
         saved_paths = []
         for file in input_files:
             if file.filename:
@@ -58,6 +69,7 @@ def process():
         
         saved_paths.extend(github_urls)
 
+        logger_adapter = logging.LoggerAdapter(logger, {'request_id': request_id})
         output_path = job.temp_dir / output_filename
         output_dir = process_input(
             saved_paths,
@@ -66,7 +78,8 @@ def process():
             single_file,
             repo_depth,
             include_metadata,
-            include_toc
+            include_toc,
+            logger_adapter
         )
 
         return jsonify({
@@ -76,7 +89,7 @@ def process():
         })
 
     except Exception as e:
-        logger.error(f"Processing error: {str(e)}")
+        logger_adapter.error(f"Processing error: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)

@@ -3,7 +3,7 @@ FROM python:3.12
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    git \
+    git libmagic-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -27,3 +27,5 @@ docker compose up --build
 ```
 
 The web interface will be available at: http://localhost:8000
+
+Test at https://automd.0xgingi.com

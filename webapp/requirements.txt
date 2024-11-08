@@ -4,5 +4,5 @@ python-engineio==4.10.0
 python-socketio==5.11.4
 pygit2==1.16.0
 chardet==5.2.0
-python-magic-bin==0.4.14
+python-magic==0.4.27
 Werkzeug==3.1.2

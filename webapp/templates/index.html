@@ -76,7 +76,9 @@
                 </div>
             </div>
 
-            <div id="console" class="mb-3"></div>
+            <div class="mb-3">
+                <pre id="console" class="mb-3"></pre>
+            </div>
 
             <button type="submit" class="btn btn-primary">Start Processing</button>
         </form>
@@ -87,6 +89,11 @@
     <script>
         const socket = io();
         const githubUrls = new Set();
+        let requestId = null;
+
+        socket.on('connect', function() {
+            requestId = socket.id;
+        });
 
         socket.on('log', function(message) {
             $('#console').append(message + '\n');
@@ -98,7 +105,7 @@
         });
 
         function addGitHubRepo() {
-            const repoUrl = $('#repo_url').val();
+            const repoUrl = $('#repo_url').val().trim();
             if (!repoUrl || !repoUrl.startsWith('https://github.com/')) {
                 alert('Please enter a valid GitHub repository URL');
                 return;
@@ -152,6 +159,7 @@
             formData.append('include_metadata', $('#include_metadata').is(':checked'));
             formData.append('include_toc', $('#include_toc').is(':checked'));
             formData.append('output_filename', $('#output_filename').val() || 'output.md');
+            formData.append('request_id', requestId);
 
             $.ajax({
                 url: '/process',

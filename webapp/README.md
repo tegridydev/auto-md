@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- Python 3.8-3.11 (3.12 not yet fully supported)
-- Git (for repository cloning)
+- Python
+- Git
 
 ## Install Dependencies
 
@@ -13,7 +13,6 @@ pip install -r requirements.txt
 
 ## Run the Web App
 
-For development (Windows/Linux):
 ```bash
 python wsgi.py
 ```

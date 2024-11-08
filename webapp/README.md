@@ -18,4 +18,10 @@ For development (Windows/Linux):
 python wsgi.py
 ```
 
+## Docker
+
+```bash
+docker compose up --build
+```
+
 The web interface will be available at: http://localhost:8000

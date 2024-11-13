@@ -1,91 +1,283 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto MD</title>
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script defer data-domain="automd.0xgingi.com" src="https://plausible.0xgingi.com/js/script.file-downloads.pageview-props.tagged-events.js"></script>
     <style>
-        body { background-color: #2E2E2E; color: white; padding: 20px; }
-        .container { max-width: 1000px; }
-        .form-control, .form-select { background-color: #3E3E3E; color: white; border-color: #4A4A4A; }
-        .form-control:focus, .form-select:focus { background-color: #3E3E3E; color: white; }
-        .btn-primary { background-color: #4A4A4A; border-color: #5A5A5A; }
-        .btn-primary:hover { background-color: #5A5A5A; border-color: #6A6A6A; }
-        #console { background-color: #1E1E1E; color: white; padding: 10px; height: 300px; overflow-y: auto; font-family: monospace; }
-        .github-url { background-color: #3E3E3E; color: white; padding: 5px; margin: 5px 0; border-radius: 4px; }
-        .remove-url { color: #ff4444; cursor: pointer; float: right; }
+        /* Global Styles */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #1d1d2b;
+            color: #e0e0e0;
+        }
+
+        /* Header */
+        header {
+            padding: 40px 0 20px 0;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.8rem;
+            font-weight: bold;
+            color: #67b7d1;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.2rem;
+            color: #cccccc;
+            margin-bottom: 30px;
+        }
+
+        /* Form Container */
+        .form-container {
+            background-color: #2d2d3f;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            margin-bottom: 20px;
+        }
+
+        .form-container label {
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        .form-container .form-control,
+        .form-container .form-select {
+            background-color: #1d1d2b;
+            border: 1px solid #434356;
+            color: #e0e0e0;
+            font-size: 1rem;
+        }
+
+        .form-container .form-control:focus,
+        .form-container .form-select:focus {
+            border-color: #67b7d1;
+            box-shadow: none;
+            outline: none;
+        }
+
+        .btn-custom {
+            background-color: #67b7d1;
+            color: #1d1d2b;
+            border: none;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn-custom:hover {
+            background-color: #5aa8bf;
+        }
+
+        /* Repo List */
+        .repo-list {
+            margin-top: 15px;
+        }
+
+        .repo-item {
+            background-color: #1d1d2b;
+            border: 1px solid #434356;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .repo-item a {
+            color: #67b7d1;
+            text-decoration: none;
+        }
+
+        .repo-item a:hover {
+            text-decoration: underline;
+        }
+
+        /* Results Section */
+        .results {
+            background-color: #2d2d3f;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            margin-top: 20px;
+        }
+
+        .results h2 {
+            color: #67b7d1;
+            margin-bottom: 20px;
+        }
+
+        .result-sections {
+            text-align: left;
+        }
+
+        .result-sections section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #1d1d2b;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+
+        .result-sections h3 {
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        #console {
+            background-color: #1E1E1E;
+            color: #cccccc;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin: 0;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+
+        /* Progress Bar */
+        .progress {
+            background-color: #1d1d2b;
+            height: 20px;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            background-color: #67b7d1;
+            transition: width 0.3s ease;
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 30px;
+            color: #cccccc;
+            font-size: 0.9rem;
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        /* Responsive Adjustments */
+        @media (max-width: 576px) {
+            header h1 {
+                font-size: 2rem;
+            }
+
+            .form-container {
+                padding: 20px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1 class="mb-4">Auto MD</h1>
-        
-        <form id="processForm">
-            <div class="mb-3">
-                <label class="form-label">Input Files:</label>
-                <input type="file" class="form-control" id="input_files" multiple>
-            </div>
+    <header>
+        <h1>AutoMD</h1>
+        <p>Convert Files / Folders / GitHub Repos Into AI / LLM-ready Files</p>
+    </header>
 
-            <div class="mb-3">
-                <label class="form-label">GitHub Repository URL:</label>
-                <div class="input-group">
-                    <input type="text" class="form-control" id="repo_url" placeholder="https://github.com/user/repo">
-                    <button type="button" class="btn btn-secondary" onclick="addGitHubRepo()">Add Repository</button>
+    <main class="container">
+        <div class="form-container">
+            <form id="processForm">
+                <!-- Input Files -->
+                <div class="mb-3">
+                    <label for="input_files" class="form-label">Input Files:</label>
+                    <input type="file" id="input_files" class="form-control" multiple>
                 </div>
-                <div id="github_urls" class="mt-2"></div>
-            </div>
 
-            <div class="mb-3">
-                <label class="form-label">Output Filename:</label>
-                <input type="text" class="form-control" id="output_filename" placeholder="output.md">
-            </div>
-
-            <div class="mb-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="single_file" checked>
-                    <label class="form-check-label">Output to single file</label>
+                <!-- GitHub Repository URL -->
+                <div class="mb-3">
+                    <label for="repo_url" class="form-label">GitHub Repository URL:</label>
+                    <div class="input-group">
+                        <input type="url" id="repo_url" class="form-control" placeholder="https://github.com/user/repo" aria-label="GitHub Repository URL">
+                        <button type="button" class="btn btn-custom" onclick="addGitHubRepo()">Add</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="mb-3">
-                <label class="form-label">Repository clone depth:</label>
-                <select class="form-select" id="repo_depth">
-                    <option>Full</option>
-                    <option>1</option>
-                    <option>5</option>
-                    <option>10</option>
-                    <option>20</option>
-                    <option>50</option>
-                    <option>100</option>
-                </select>
-            </div>
+                <!-- Repo List -->
+                <div id="repoList" class="repo-list"></div>
 
-            <div class="mb-3">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="include_metadata" checked>
-                    <label class="form-check-label">Include metadata</label>
+                <!-- Output Filename -->
+                <div class="mb-3">
+                    <label for="output_filename" class="form-label">Output Filename:</label>
+                    <input type="text" id="output_filename" class="form-control" placeholder="output.md">
                 </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="include_toc" checked>
-                    <label class="form-check-label">Include table of contents</label>
+
+                <!-- Single File Option -->
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="single_file" checked>
+                        <label class="form-check-label" for="single_file">Output to single file</label>
+                    </div>
                 </div>
-            </div>
 
-            <div class="mb-3">
-                <div class="progress">
-                    <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                <!-- Repository Clone Depth -->
+                <div class="mb-3">
+                    <label for="repo_depth" class="form-label">Repository Clone Depth:</label>
+                    <select id="repo_depth" class="form-select">
+                        <option value="full">Full</option>
+                        <option value="1">1</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
                 </div>
+
+                <!-- Options -->
+                <div class="mb-3">
+                    <label class="form-label">Options:</label>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="include_metadata" checked>
+                        <label class="form-check-label" for="include_metadata">Include Metadata</label>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="include_toc" checked>
+                        <label class="form-check-label" for="include_toc">Include Table of Contents</label>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="mb-3">
+                    <div class="progress">
+                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-custom">Start Processing</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Results Section -->
+        <div class="results" id="results" style="display: none;">
+            <h2>Processing Results</h2>
+            <div class="result-sections">
+                <section>
+                    <h3>Console Log</h3>
+                    <pre id="console">No data yet.</pre>
+                </section>
             </div>
+        </div>
+    </main>
 
-            <div class="mb-3">
-                <pre id="console" class="mb-3"></pre>
-            </div>
+    <footer>
+        <p>Open Source - View Github - Other Tools</p>
+    </footer>
 
-            <button type="submit" class="btn btn-primary">Start Processing</button>
-        </form>
-    </div>
-
+    <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.min.js"></script>
     <script>
         const socket = io();
         const githubUrls = new Set();
@@ -96,18 +288,21 @@
         });
 
         socket.on('log', function(message) {
-            $('#console').append(message + '\n');
-            $('#console').scrollTop($('#console')[0].scrollHeight);
+            const consoleElement = document.getElementById('console');
+            consoleElement.textContent += message + '\n';
+            consoleElement.scrollTop = consoleElement.scrollHeight;
         });
 
         socket.on('progress', function(data) {
-            $('.progress-bar').css('width', data.progress + '%');
+            document.querySelector('.progress-bar').style.width = data.progress + '%';
         });
 
         function addGitHubRepo() {
-            const repoUrl = $('#repo_url').val().trim();
+            const repoInput = document.getElementById('repo_url');
+            const repoUrl = repoInput.value.trim();
+
             if (!repoUrl || !repoUrl.startsWith('https://github.com/')) {
-                alert('Please enter a valid GitHub repository URL');
+                alert('Please enter a valid GitHub URL.');
                 return;
             }
 
@@ -117,35 +312,44 @@
             }
 
             githubUrls.add(repoUrl);
-            updateGithubUrlsList();
-            $('#repo_url').val('');
+
+            // Create repo item
+            const repoList = document.getElementById('repoList');
+            const repoItem = document.createElement('div');
+            repoItem.className = 'repo-item';
+
+            const repoLink = document.createElement('a');
+            repoLink.href = repoUrl;
+            repoLink.target = '_blank';
+            repoLink.textContent = repoUrl;
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'btn btn-danger btn-sm';
+            removeButton.textContent = 'Remove';
+            removeButton.onclick = function() {
+                githubUrls.delete(repoUrl);
+                repoList.removeChild(repoItem);
+            };
+
+            repoItem.appendChild(repoLink);
+            repoItem.appendChild(removeButton);
+            repoList.appendChild(repoItem);
+
+            // Clear input
+            repoInput.value = '';
         }
 
-        function removeGitHubRepo(url) {
-            githubUrls.delete(url);
-            updateGithubUrlsList();
-        }
-
-        function updateGithubUrlsList() {
-            const container = $('#github_urls');
-            container.empty();
-            githubUrls.forEach(url => {
-                container.append(`
-                    <div class="github-url">
-                        ${url}
-                        <span class="remove-url" onclick="removeGitHubRepo('${url}')">&times;</span>
-                    </div>
-                `);
-            });
-        }
-
-        $('#processForm').on('submit', function(e) {
+        document.getElementById('processForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            $('#console').empty();
-            $('.progress-bar').css('width', '0%');
-            
+            const consoleElement = document.getElementById('console');
+            const resultsSection = document.getElementById('results');
+            consoleElement.textContent = '';
+            resultsSection.style.display = 'block';
+            document.querySelector('.progress-bar').style.width = '0%';
+
             const formData = new FormData();
-            const files = $('#input_files')[0].files;
+            const files = document.getElementById('input_files').files;
             for (let i = 0; i < files.length; i++) {
                 formData.append('input_files', files[i]);
             }
@@ -154,29 +358,27 @@
                 formData.append('github_urls[]', url);
             });
             
-            formData.append('single_file', $('#single_file').is(':checked'));
-            formData.append('repo_depth', $('#repo_depth').val());
-            formData.append('include_metadata', $('#include_metadata').is(':checked'));
-            formData.append('include_toc', $('#include_toc').is(':checked'));
-            formData.append('output_filename', $('#output_filename').val() || 'output.md');
+            formData.append('single_file', document.getElementById('single_file').checked);
+            formData.append('repo_depth', document.getElementById('repo_depth').value);
+            formData.append('include_metadata', document.getElementById('include_metadata').checked);
+            formData.append('include_toc', document.getElementById('include_toc').checked);
+            formData.append('output_filename', document.getElementById('output_filename').value || 'output.md');
             formData.append('request_id', requestId);
 
-            $.ajax({
-                url: '/process',
-                type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
-                success: function(response) {
-                    $('#console').append('Processing complete!\n');
-                    if (response.output_path) {
-                        $('#console').append(`Output saved to: ${response.output_path}\n`);
-                        window.location.href = `/download?path=${encodeURIComponent(response.output_path)}`;
-                    }
-                },
-                error: function(xhr, status, error) {
-                    $('#console').append(`Error: ${error}\n`);
+            fetch('/process', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(response => {
+                consoleElement.textContent += 'Processing complete!\n';
+                if (response.output_path) {
+                    consoleElement.textContent += `Output saved to: ${response.output_path}\n`;
+                    window.location.href = `/download?path=${encodeURIComponent(response.output_path)}`;
                 }
+            })
+            .catch(error => {
+                consoleElement.textContent += `Error: ${error}\n`;
             });
         });
     </script>

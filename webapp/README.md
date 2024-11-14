@@ -2,6 +2,7 @@
 
 ![image](https://github.com/user-attachments/assets/311521b2-d09b-4a6e-8e07-adec17359199)
 
+https://automd.toolworks.dev
 
 ## Requirements
 
@@ -27,5 +28,3 @@ docker compose up --build
 ```
 
 The web interface will be available at: http://localhost:8000
-
-Test at https://automd.0xgingi.com

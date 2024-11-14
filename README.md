@@ -2,6 +2,8 @@
 
 ### Python tool that converts various file types and GitHub repositories into Markdown documents (.md) optimized for quick RAG/indexing via large language models (LLMs)
 
+Try the web version at https://automd.toolworks.dev
+
 ![screen](auto-md-gui-screen.png)
 
 ## Features

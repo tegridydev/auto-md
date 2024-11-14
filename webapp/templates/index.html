@@ -197,6 +197,7 @@
                         <input type="url" id="repo_url" class="form-control" placeholder="https://github.com/user/repo" aria-label="GitHub Repository URL">
                         <button type="button" class="btn btn-custom" onclick="addGitHubRepo()">Add</button>
                     </div>
+                    <div id="github_urls" class="repo-list"></div>
                 </div>
 
                 <!-- Repo List -->
@@ -220,16 +221,16 @@
                 <div class="mb-3">
                     <label for="repo_depth" class="form-label">Repository Clone Depth:</label>
                     <select id="repo_depth" class="form-select">
-                        <option value="full">Full</option>
-                        <option value="1">1</option>
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
+                        <option>Full</option>
+                        <option>1</option>
+                        <option>5</option>
+                        <option>10</option>
+                        <option>20</option>
+                        <option>50</option>
+                        <option>100</option>
                     </select>
                 </div>
-
+                
                 <!-- Options -->
                 <div class="mb-3">
                     <label class="form-label">Options:</label>
@@ -285,24 +286,22 @@
 
         socket.on('connect', function() {
             requestId = socket.id;
+            console.log('Connected with ID:', requestId);
         });
 
         socket.on('log', function(message) {
-            const consoleElement = document.getElementById('console');
-            consoleElement.textContent += message + '\n';
-            consoleElement.scrollTop = consoleElement.scrollHeight;
+            $('#console').append(message + '\n');
+            $('#console').scrollTop($('#console')[0].scrollHeight);
         });
 
         socket.on('progress', function(data) {
-            document.querySelector('.progress-bar').style.width = data.progress + '%';
+            $('.progress-bar').css('width', data.progress + '%');
         });
 
         function addGitHubRepo() {
-            const repoInput = document.getElementById('repo_url');
-            const repoUrl = repoInput.value.trim();
-
+            const repoUrl = $('#repo_url').val().trim();
             if (!repoUrl || !repoUrl.startsWith('https://github.com/')) {
-                alert('Please enter a valid GitHub URL.');
+                alert('Please enter a valid GitHub repository URL');
                 return;
             }
 
@@ -312,44 +311,36 @@
             }
 
             githubUrls.add(repoUrl);
-
-            // Create repo item
-            const repoList = document.getElementById('repoList');
-            const repoItem = document.createElement('div');
-            repoItem.className = 'repo-item';
-
-            const repoLink = document.createElement('a');
-            repoLink.href = repoUrl;
-            repoLink.target = '_blank';
-            repoLink.textContent = repoUrl;
-
-            const removeButton = document.createElement('button');
-            removeButton.type = 'button';
-            removeButton.className = 'btn btn-danger btn-sm';
-            removeButton.textContent = 'Remove';
-            removeButton.onclick = function() {
-                githubUrls.delete(repoUrl);
-                repoList.removeChild(repoItem);
-            };
-
-            repoItem.appendChild(repoLink);
-            repoItem.appendChild(removeButton);
-            repoList.appendChild(repoItem);
-
-            // Clear input
-            repoInput.value = '';
+            updateGithubUrlsList();
+            $('#repo_url').val('');
         }
 
-        document.getElementById('processForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const consoleElement = document.getElementById('console');
-            const resultsSection = document.getElementById('results');
-            consoleElement.textContent = '';
-            resultsSection.style.display = 'block';
-            document.querySelector('.progress-bar').style.width = '0%';
+        function removeGitHubRepo(url) {
+            githubUrls.delete(url);
+            updateGithubUrlsList();
+        }
 
+        function updateGithubUrlsList() {
+            const container = $('#github_urls');
+            container.empty();
+            githubUrls.forEach(url => {
+                container.append(`
+                    <div class="repo-item">
+                        ${url}
+                        <button type="button" class="btn btn-sm btn-danger" onclick="removeGitHubRepo('${url}')">Remove</button>
+                    </div>
+                `);
+            });
+        }
+
+        $('#processForm').on('submit', function(e) {
+            e.preventDefault();
+            $('#console').empty();
+            $('.progress-bar').css('width', '0%');
+            $('#results').show();
+            
             const formData = new FormData();
-            const files = document.getElementById('input_files').files;
+            const files = $('#input_files')[0].files;
             for (let i = 0; i < files.length; i++) {
                 formData.append('input_files', files[i]);
             }
@@ -358,27 +349,29 @@
                 formData.append('github_urls[]', url);
             });
             
-            formData.append('single_file', document.getElementById('single_file').checked);
-            formData.append('repo_depth', document.getElementById('repo_depth').value);
-            formData.append('include_metadata', document.getElementById('include_metadata').checked);
-            formData.append('include_toc', document.getElementById('include_toc').checked);
-            formData.append('output_filename', document.getElementById('output_filename').value || 'output.md');
+            formData.append('single_file', $('#single_file').is(':checked'));
+            formData.append('repo_depth', $('#repo_depth').val());
+            formData.append('include_metadata', $('#include_metadata').is(':checked'));
+            formData.append('include_toc', $('#include_toc').is(':checked'));
+            formData.append('output_filename', $('#output_filename').val() || 'output.md');
             formData.append('request_id', requestId);
 
-            fetch('/process', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(response => {
-                consoleElement.textContent += 'Processing complete!\n';
-                if (response.output_path) {
-                    consoleElement.textContent += `Output saved to: ${response.output_path}\n`;
-                    window.location.href = `/download?path=${encodeURIComponent(response.output_path)}`;
+            $.ajax({
+                url: '/process',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    $('#console').append('Processing complete!\n');
+                    if (response.output_path) {
+                        $('#console').append(`Output saved to: ${response.output_path}\n`);
+                        window.location.href = `/download?path=${encodeURIComponent(response.output_path)}`;
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $('#console').append(`Error: ${error}\n`);
                 }
-            })
-            .catch(error => {
-                consoleElement.textContent += `Error: ${error}\n`;
             });
         });
     </script>

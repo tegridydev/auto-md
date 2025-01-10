@@ -1,5 +1,9 @@
 # ~auto~md~
 
+## On-going development & updates via https://github.com/toolworks-dev/auto-md
+### (this is just my personal python tool script version in this repo)
+
+-----------------------------------------------------------------------------------------------
 ### Python tool that converts various file types and GitHub repositories into Markdown documents (.md) optimized for quick RAG/indexing via large language models (LLMs)
 
 Try the web version at https://automd.toolworks.dev

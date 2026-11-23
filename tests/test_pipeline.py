@@ -12,7 +12,9 @@ def test_pipeline_processes_folder_filters_and_archive(tmp_path: Path) -> None:
     workspace = tmp_path / "job"
     upload = workspace / "uploads" / "src"
     (upload / "project").mkdir(parents=True)
-    (upload / "project/app.py").write_text("print('hello 世界')\n")
+    (upload / "project/app.py").write_text(
+        "print('hello 世界')\n", encoding="utf-8", newline="\r\n"
+    )
     (upload / "project/node_modules/pkg").mkdir(parents=True)
     (upload / "project/node_modules/pkg/index.js").write_text("noise")
     with zipfile.ZipFile(upload / "project/docs.zip", "w") as archive:
@@ -27,8 +29,9 @@ def test_pipeline_processes_folder_filters_and_archive(tmp_path: Path) -> None:
         [SourceSpec("src", "upload", "project")],
         ProcessingOptions(output_mode=OutputMode.MARKDOWN, output_name="project"),
     )
-    output = result.artifacts[0].path.read_text()
+    output = result.artifacts[0].path.read_bytes().decode("utf-8")
     assert "hello 世界" in output
+    assert "\r" not in output
     assert "Useful" in output
     assert "node_modules" not in output
     assert "packaging" in events

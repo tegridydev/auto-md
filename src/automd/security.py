@@ -216,12 +216,14 @@ def _connect(
     hostname: str, port: int, *, https: bool, deadline: float
 ) -> http.client.HTTPConnection:
     endpoints = _public_endpoints(hostname, port)
-    context = ssl.create_default_context(cafile=certifi.where()) if https else None
-    connection = (
-        http.client.HTTPSConnection(hostname, port, context=context)
-        if context
-        else http.client.HTTPConnection(hostname, port)
-    )
+    context: ssl.SSLContext | None = None
+    connection: http.client.HTTPConnection
+    if https:
+        context = ssl.create_default_context(cafile=certifi.where())
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        connection = http.client.HTTPSConnection(hostname, port, context=context)
+    else:
+        connection = http.client.HTTPConnection(hostname, port)
     last_error: OSError | None = None
     # Connect directly to the vetted socket address. Keep Host and TLS identity on the origin.
     for family, sockaddr in endpoints:
@@ -230,7 +232,7 @@ def _connect(
             sock.settimeout(_remaining(deadline))
             sock.connect(sockaddr)
             connection.sock = (
-                context.wrap_socket(sock, server_hostname=hostname) if context else sock
+                context.wrap_socket(sock, server_hostname=hostname) if context is not None else sock
             )
             return connection
         except ssl.SSLCertVerificationError:

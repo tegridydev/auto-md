@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+import pytest
 
 from automd.extraction import Extractor, decode_text
 from automd.models import ProcessingOptions, StagedFile
@@ -11,12 +14,15 @@ def staged(path: Path) -> StagedFile:
     return StagedFile("source", "Example", path, path.name)
 
 
-def test_text_preserves_unicode_and_whitespace(tmp_path: Path) -> None:
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["LF", "CRLF", "CR"])
+def test_text_preserves_unicode_and_whitespace(tmp_path: Path, newline: str) -> None:
     path = tmp_path / "hello.py"
-    content = "def hello():\n    return 'G’day 世界'\n"
-    path.write_text(content, encoding="utf-8")
+    content = "def hello():\n    return 'G’day 世界'  \n"
+    raw = content.replace("\n", newline).encode("utf-8")
+    path.write_bytes(raw)
     document = Extractor().extract(staged(path), ProcessingOptions())
     assert document.content == content.rstrip("\n")
+    assert document.sha256 == hashlib.sha256(raw).hexdigest()
     assert document.language == "python"
     assert document.content_kind == "raw"
 
@@ -73,7 +79,6 @@ def test_image_ocr_with_bundled_models(tmp_path: Path) -> None:
 
 
 def test_image_type_must_match_allowlisted_decoder(tmp_path: Path) -> None:
-    import pytest
     from PIL import Image, UnidentifiedImageError
 
     path = tmp_path / "mismatched.png"

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import socket
+import ssl
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
+import certifi
 import pytest
 
 from automd.security import SecurityError, _connect, download_url
@@ -23,6 +25,8 @@ def test_transport_dials_the_validated_endpoint_and_keeps_tls_hostname() -> None
         connection = _connect("example.org", 443, https=True, deadline=monotonic() + 2)
         dns.assert_called_once()
         socket_factory.return_value.connect.assert_called_once_with(endpoint)
+        context.assert_called_once_with(cafile=certifi.where())
+        assert context.return_value.minimum_version == ssl.TLSVersion.TLSv1_2
         context.return_value.wrap_socket.assert_called_once_with(
             socket_factory.return_value, server_hostname="example.org"
         )

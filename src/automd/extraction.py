@@ -287,6 +287,7 @@ class Extractor:
             raise SecurityError("Document exceeds the text limit")
         # A nonconforming document can contain lone surrogates from a JSON escape.
         content = re.sub(r"[\ud800-\udfff]", "\ufffd", content)
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
         title = staged.relative_path or staged.source_label
         return Document(
             source_id=staged.source_id,

@@ -3,18 +3,20 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import mimetypes
 import re
-import tempfile
 import threading
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from .config import LIMITS, SUPPORTED_IMAGE_EXTENSIONS
+from .config import IMAGE_FORMATS, LIMITS, SUPPORTED_IMAGE_EXTENSIONS
 from .models import Document, OcrMode, ProcessingOptions, StagedFile
+from .security import SecurityError, validate_docx
 
 logger = logging.getLogger(__name__)
 
@@ -195,23 +197,24 @@ class Extractor:
     def extract(self, staged: StagedFile, options: ProcessingOptions) -> Document:
         path = staged.path
         suffix = path.suffix.lower()
-        sha256 = _sha256_file(path)
         if suffix in HTML_EXTENSIONS:
             content = self._html(path)
-            return self._document(staged, content, "text/html", sha256, content_kind="markdown")
+            return self._document(
+                staged, content, "text/html", _sha256_file(path), content_kind="markdown"
+            )
         if suffix == ".docx":
             content = self._docx(path)
             return self._document(
                 staged,
                 content,
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                sha256,
+                _sha256_file(path),
                 content_kind="markdown",
             )
         if suffix == ".pdf":
             content, warnings = self._pdf(path, options.ocr_mode)
             document = self._document(
-                staged, content, "application/pdf", sha256, content_kind="markdown"
+                staged, content, "application/pdf", _sha256_file(path), content_kind="markdown"
             )
             document.warnings.extend(warnings)
             return document
@@ -220,22 +223,33 @@ class Extractor:
                 raise UnsupportedFormat("Image OCR is disabled")
             content = self._image(path)
             return self._document(
-                staged, content, f"image/{suffix.lstrip('.')}", sha256, content_kind="markdown"
+                staged,
+                content,
+                f"image/{suffix.lstrip('.')}",
+                _sha256_file(path),
+                content_kind="markdown",
             )
         if suffix in NOTEBOOK_EXTENSIONS:
             content = self._notebook(path, options.include_notebook_outputs)
             return self._document(
-                staged, content, "application/x-ipynb+json", sha256, content_kind="markdown"
+                staged,
+                content,
+                "application/x-ipynb+json",
+                _sha256_file(path),
+                content_kind="markdown",
             )
         if self.is_text(path):
-            raw = path.read_bytes()
+            with path.open("rb") as stream:
+                raw = stream.read(LIMITS.max_document_chars * 4 + 1)
+            if len(raw) > LIMITS.max_document_chars * 4:
+                raise SecurityError("Document exceeds the text limit")
             content, warning = decode_text(raw)
             media_type = mimetypes.guess_type(path.name)[0] or "text/plain"
             document = self._document(
                 staged,
                 content,
                 media_type,
-                sha256,
+                hashlib.sha256(raw).hexdigest(),
                 language=LANGUAGES.get(suffix, "text"),
             )
             if warning:
@@ -252,7 +266,8 @@ class Extractor:
             stem.startswith(f"{name}.") for name in SPECIAL_TEXT_NAMES
         ):
             return True
-        sample = path.read_bytes()[:8192]
+        with path.open("rb") as stream:
+            sample = stream.read(8192)
         if not sample or b"\x00" in sample:
             return False
         control = sum(byte < 9 or 13 < byte < 32 for byte in sample)
@@ -268,6 +283,10 @@ class Extractor:
         content_kind: str = "raw",
         language: str | None = None,
     ) -> Document:
+        if len(content) > LIMITS.max_document_chars:
+            raise SecurityError("Document exceeds the text limit")
+        # A nonconforming document can contain lone surrogates from a JSON escape.
+        content = re.sub(r"[\ud800-\udfff]", "\ufffd", content)
         title = staged.relative_path or staged.source_label
         return Document(
             source_id=staged.source_id,
@@ -283,18 +302,43 @@ class Extractor:
         )
 
     def _html(self, path: Path) -> str:
-        text, _ = decode_text(path.read_bytes())
+        with path.open("rb") as stream:
+            raw = stream.read(LIMITS.max_web_bytes + 1)
+        if len(raw) > LIMITS.max_web_bytes:
+            raise SecurityError("HTML exceeds the parser size limit")
+        text, _ = decode_text(raw)
         soup = BeautifulSoup(text, "html.parser")
-        for element in soup(["script", "style", "noscript", "template", "svg", "canvas"]):
+        for element in soup(
+            [
+                "script",
+                "style",
+                "noscript",
+                "template",
+                "svg",
+                "canvas",
+                "iframe",
+                "object",
+                "embed",
+                "img",
+                "picture",
+                "source",
+            ]
+        ):
             element.decompose()
         content = soup.find("article") or soup.find("main") or soup.body or soup
         for element in content.find_all(["nav", "aside", "footer"]):
             element.decompose()
+        for link in content.find_all("a", href=True):
+            # The exported Markdown may be rendered outside Auto-MD.
+            href = str(link["href"])
+            if not href.startswith(("https://", "http://", "#")):
+                del link["href"]
         return markdownify(str(content), heading_style="ATX", bullets="-").strip()
 
     def _docx(self, path: Path) -> str:
         from docx import Document as DocxDocument
 
+        validate_docx(path)
         document = DocxDocument(path)
         parts: list[str] = []
         for paragraph in document.paragraphs:
@@ -333,31 +377,44 @@ class Extractor:
             try:
                 if len(pdf) > LIMITS.max_pdf_pages:
                     raise ValueError(f"PDF exceeds the {LIMITS.max_pdf_pages}-page limit")
+                remaining = LIMITS.max_document_chars
                 for index in range(len(pdf)):
                     page = pdf[index]
-                    text_page = page.get_textpage()
                     try:
-                        text = text_page.get_text_range().strip()
-                    finally:
-                        text_page.close()
-                    needs_ocr = ocr_mode == OcrMode.ALWAYS or (
-                        ocr_mode == OcrMode.AUTO and len(re.findall(r"[A-Za-z0-9]", text)) < 20
-                    )
-                    if needs_ocr:
-                        bitmap = page.render(scale=200 / 72)
+                        text_page = page.get_textpage()
                         try:
-                            image = bitmap.to_pil()
-                            with tempfile.NamedTemporaryFile(suffix=".png") as temporary:
-                                image.save(temporary.name, "PNG")
-                                ocr_text = self._run_ocr(Path(temporary.name))
-                            if ocr_text.strip():
-                                text = ocr_text
-                            elif not text:
-                                warnings.append(f"Page {index + 1}: OCR found no text")
+                            if text_page.count_chars() > remaining:
+                                raise SecurityError("PDF text exceeds the document limit")
+                            text = text_page.get_text_range().strip()
                         finally:
-                            bitmap.close()
-                    pages.append(f"## Page {index + 1}\n\n{text}".rstrip())
-                    page.close()
+                            text_page.close()
+                        needs_ocr = ocr_mode == OcrMode.ALWAYS or (
+                            ocr_mode == OcrMode.AUTO and sum(char.isalnum() for char in text) < 20
+                        )
+                        if needs_ocr:
+                            width, height = page.get_size()
+                            scale = _pdf_scale(width, height)
+                            if scale is None:
+                                warnings.append(f"Page {index + 1}: too large to rasterise for OCR")
+                            else:
+                                bitmap = page.render(scale=scale)
+                                try:
+                                    with bitmap.to_pil() as image:
+                                        ocr_text = self._ocr_image(image)
+                                    if ocr_text.strip():
+                                        text = ocr_text
+                                    elif not text:
+                                        warnings.append(f"Page {index + 1}: OCR found no text")
+                                finally:
+                                    bitmap.close()
+                        section = f"## Page {index + 1}\n\n{text}".rstrip()
+                        remaining -= len(section) + 2
+                        if remaining < 0:
+                            raise SecurityError("PDF text exceeds the document limit")
+                        if text:
+                            pages.append(section)
+                    finally:
+                        page.close()
             finally:
                 pdf.close()
         return "\n\n".join(pages), warnings
@@ -365,24 +422,29 @@ class Extractor:
     def _image(self, path: Path) -> str:
         from PIL import Image, ImageOps
 
-        with Image.open(path) as image:
+        with Image.open(path, formats=[IMAGE_FORMATS[path.suffix.lower()]]) as image:
             if image.width * image.height > LIMITS.max_image_pixels:
-                raise ValueError("Image exceeds the pixel limit")
-            image = ImageOps.exif_transpose(image).convert("RGB")
-            with tempfile.NamedTemporaryFile(suffix=".png") as temporary:
-                image.save(temporary.name, "PNG")
-                text = self._run_ocr(Path(temporary.name))
+                raise SecurityError("Image exceeds the pixel limit")
+            with ImageOps.exif_transpose(image) as oriented:
+                text = self._ocr_image(oriented)
         if not text.strip():
             raise ValueError("OCR found no text in the image")
         return f"## OCR text\n\n{text.strip()}"
 
-    def _run_ocr(self, path: Path) -> str:
+    def _ocr_image(self, image: Any) -> str:
+        np = import_module("numpy")
+
+        # Resize before making NumPy copies and feed pixels directly to OCR.
+        # This avoids a PNG encode/decode round trip and works on Windows.
+        image.thumbnail((3_000, 3_000))
+        with image.convert("RGB") as rgb:
+            pixels = np.asarray(rgb)[:, :, ::-1].copy()
         with self._ocr_lock:
             if self._ocr_engine is None:
                 from rapidocr import RapidOCR
 
-                self._ocr_engine = RapidOCR()
-            result = self._ocr_engine(str(path))
+                self._ocr_engine = RapidOCR(params=_local_ocr_models())
+            result = self._ocr_engine(pixels)
         if hasattr(result, "txts"):
             values = result.txts or []
             return "\n".join(str(value) for value in values)
@@ -401,8 +463,12 @@ class Extractor:
         return ""
 
     def _notebook(self, path: Path, include_outputs: bool) -> str:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        cells = value.get("cells")
+        with path.open("rb") as stream:
+            raw = stream.read(LIMITS.max_web_bytes + 1)
+        if len(raw) > LIMITS.max_web_bytes:
+            raise SecurityError("Notebook exceeds the parser size limit")
+        value = json.loads(raw)
+        cells = value.get("cells") if isinstance(value, dict) else None
         if not isinstance(cells, list):
             raise ValueError("Notebook has no cells array")
         parts: list[str] = []
@@ -425,6 +491,35 @@ class Extractor:
                         )
                 parts.append(section)
         return "\n\n".join(parts)
+
+
+def _pdf_scale(width: float, height: float) -> float | None:
+    if not all(math.isfinite(value) and 0 < value <= 200_000 for value in (width, height)):
+        return None
+    scale = min(200 / 72, 3_000 / max(width, height))
+    return scale if scale >= 0.1 else None
+
+
+def _local_ocr_models() -> dict[str, str | int]:
+    from importlib.resources import files
+
+    root = files("rapidocr").joinpath("models")
+    models = {
+        "Det.model_path": "PP-OCRv6_det_small.onnx",
+        "Cls.model_path": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "Rec.model_path": "PP-OCRv6_rec_small.onnx",
+    }
+    paths: dict[str, str | int] = {
+        "Global.log_level": "WARNING",
+        "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+    }
+    for key, filename in models.items():
+        path = root.joinpath(filename)
+        if not path.is_file():
+            raise ValueError("Bundled OCR model missing. Reinstall Auto-MD from its lockfile.")
+        paths[key] = str(path)
+    return paths
 
 
 def decode_text(raw: bytes) -> tuple[str, str | None]:

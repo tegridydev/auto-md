@@ -56,7 +56,8 @@ const token =
 const sources: LocalSource[] = [];
 let activeJob: JobSnapshot | null = null;
 let eventSource: EventSource | null = null;
-let markdownPreview = "";
+let previewRequest: AbortController | null = null;
+let markdownUrl: string | null = null;
 let toastTimer = 0;
 let viewState: ViewState = "setup";
 let drawerReturnFocus: HTMLElement | null = null;
@@ -206,14 +207,10 @@ function bindEvents(): void {
   });
 }
 
-function addFiles(rawFiles: File[]): void {
+function addFiles(files: File[]): void {
   if (viewState !== "setup") return;
-  const files = rawFiles.filter((file) => !isDefaultExcluded(relativePath(file)));
-  const excluded = rawFiles.length - files.length;
   if (!files.length) {
-    showToast(
-      excluded ? "Those files match dependency or build exclusions." : "No files selected.",
-    );
+    showToast("No files selected.");
     return;
   }
   const firstPath = relativePath(files[0]!);
@@ -225,7 +222,6 @@ function addFiles(rawFiles: File[]): void {
   });
   if (!outputName.value) outputName.value = cleanOutputName(label);
   renderSources();
-  if (excluded) showToast(`${excluded} generated or dependency files skipped.`);
 }
 
 function addUrl(): void {
@@ -237,6 +233,9 @@ function addUrl(): void {
     parsed = new URL(value);
   } catch {
     return showToast("That URL is not valid.");
+  }
+  if (parsed.username || parsed.password) {
+    return showToast("URLs cannot contain credentials.");
   }
   if (!["http:", "https:"].includes(parsed.protocol)) {
     return showToast("Only HTTP and HTTPS URLs are supported.");
@@ -317,9 +316,18 @@ async function submitJob(event: SubmitEvent): Promise<void> {
   const mode = selectedOutputMode();
   const specFiles: Array<{ part: string; source_id: string; relative_path: string }> = [];
   const form = new FormData();
+  if (sources.length > 64) return showToast("Use up to 64 sources per conversion.");
+  const maxFileBytes = 100 * 1024 ** 2;
+  const maxUploadBytes = 512 * 1024 ** 2;
   let partIndex = 0;
+  let uploadBytes = 0;
   for (const source of sources) {
     for (const file of source.files ?? []) {
+      uploadBytes += file.size;
+      if (file.size > maxFileBytes) return showToast("Each file must be 100 MiB or smaller.");
+      if (uploadBytes > maxUploadBytes || partIndex >= 20_000) {
+        return showToast("Upload up to 512 MiB and 20,000 files at a time.");
+      }
       const part = `upload_${partIndex++}`;
       form.append(part, file, file.name);
       specFiles.push({
@@ -493,14 +501,16 @@ function showResult(job: JobSnapshot): void {
   downloadButton.href = url;
   downloadButton.download = artifact.name;
   previewName.textContent = artifact.name;
+  previewRequest?.abort();
+  markdownUrl = null;
   preview.textContent = "Loading…";
   if (artifact.media_type === "text/markdown") {
     copyButton.classList.remove("hidden");
     previewShell.classList.remove("hidden");
     bundlePanel.classList.add("hidden");
+    markdownUrl = url;
     void loadPreview(url);
   } else {
-    markdownPreview = "";
     copyButton.classList.add("hidden");
     previewShell.classList.add("hidden");
     bundlePanel.classList.remove("hidden");
@@ -509,14 +519,22 @@ function showResult(job: JobSnapshot): void {
 }
 
 async function loadPreview(url: string): Promise<void> {
+  const request = new AbortController();
+  previewRequest = request;
   try {
-    const response = await fetch(`${url}?inline=1`, { credentials: "same-origin" });
+    const response = await fetch(`${url}?preview=1`, {
+      credentials: "same-origin",
+      signal: request.signal,
+    });
     if (!response.ok) throw new Error("Preview unavailable.");
-    markdownPreview = await response.text();
-    preview.textContent = markdownPreview.slice(0, 120_000);
+    const text = await response.text();
+    if (!request.signal.aborted) {
+      preview.textContent = text.length >= 120_000
+        ? `${text}\n\n[Preview limited. Copy or download for the full file.]`
+        : text;
+    }
   } catch (error) {
-    markdownPreview = "";
-    preview.textContent = errorMessage(error);
+    if (!request.signal.aborted) preview.textContent = errorMessage(error);
   }
 }
 
@@ -539,7 +557,8 @@ async function resetForNewJob(): Promise<void> {
   eventSource?.close();
   if (activeJob) await deleteJob(activeJob.id);
   activeJob = null;
-  markdownPreview = "";
+  previewRequest?.abort();
+  markdownUrl = null;
   sources.splice(0);
   outputName.value = "";
   renderSources();
@@ -560,12 +579,25 @@ async function deleteJob(jobId: string): Promise<void> {
 }
 
 async function copyMarkdown(): Promise<void> {
-  if (!markdownPreview) return showToast("Preview is not loaded yet.");
+  if (!markdownUrl || !navigator.clipboard) return showToast("Clipboard access is unavailable.");
+  copyButton.disabled = true;
   try {
-    await navigator.clipboard.writeText(markdownPreview);
+    const response = fetch(markdownUrl, { credentials: "same-origin" }).then((reply) => {
+      if (!reply.ok) throw new Error("Markdown download failed.");
+      return reply;
+    });
+    if (typeof ClipboardItem === "function" && typeof navigator.clipboard.write === "function") {
+      // Keep clipboard permission tied to the click, even while the file is loading.
+      const data = response.then(async (reply) => new Blob([await reply.blob()], { type: "text/plain" }));
+      await navigator.clipboard.write([new ClipboardItem({ "text/plain": data })]);
+    } else {
+      await navigator.clipboard.writeText(await (await response).text());
+    }
     showToast("Markdown copied.");
   } catch {
-    showToast("Clipboard access is unavailable.");
+    showToast("Could not copy the Markdown. Use Download to save it.");
+  } finally {
+    copyButton.disabled = false;
   }
 }
 
@@ -705,29 +737,6 @@ function phaseTitle(phase: string): string {
 
 function relativePath(file: File): string {
   return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-}
-
-function isDefaultExcluded(path: string): boolean {
-  const parts = path.replaceAll("\\", "/").split("/");
-  const blocked = new Set([
-    ".git",
-    ".hg",
-    ".svn",
-    ".venv",
-    "venv",
-    "node_modules",
-    "__pycache__",
-    ".cache",
-    ".next",
-    ".nuxt",
-    "dist",
-    "build",
-    "target",
-  ]);
-  return (
-    parts.slice(0, -1).some((part) => blocked.has(part)) ||
-    /\.(?:min\.(?:js|css)|map)$/.test(path)
-  );
 }
 
 function sourceId(): string {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import socket
 import threading
 import time
@@ -33,7 +34,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--port must be between 0 and 65535")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(("127.0.0.1", args.port))
         sock.listen(2048)
@@ -52,10 +56,16 @@ def main(argv: list[str] | None = None) -> int:
         access_log=False,
         server_header=False,
         date_header=True,
+        proxy_headers=False,
+        ws="none",
+        limit_concurrency=32,
+        timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(config)
     if not args.no_browser:
-        threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
+        threading.Thread(
+            target=_open_when_ready, args=(url, app.state.instance_id), daemon=True
+        ).start()
 
     print(f"Auto-MD {__version__} is ready at {url}")
     print("Press Ctrl-C to stop and clear temporary job data.")
@@ -68,16 +78,21 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _open_when_ready(url: str) -> None:
+def _open_when_ready(url: str, instance_id: str) -> None:
     health_url = f"{url}health"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     for _ in range(60):
         try:
-            with urllib.request.urlopen(health_url, timeout=0.5) as response:
-                if response.status == 200:
+            with opener.open(health_url, timeout=0.5) as response:
+                if (
+                    response.status == 200
+                    and json.loads(response.read(1024)).get("instance_id") == instance_id
+                ):
                     webbrowser.open(url, new=2)
                     return
-        except (urllib.error.URLError, TimeoutError, OSError):
-            time.sleep(0.25)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError):
+            pass
+        time.sleep(0.25)
 
 
 if __name__ == "__main__":

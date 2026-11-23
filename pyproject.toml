@@ -1,23 +1,27 @@
 [project]
 name = "auto-md"
-version = "2.0.0"
+version = "2.0.1"
 description = "Turn codebases and documents into clean Markdown and RAG-ready bundles."
 readme = "README.md"
-requires-python = ">=3.11,<3.15"
-license = { text = "MIT" }
+requires-python = ">=3.11.5,<3.15"
+license = "MIT"
 authors = [{ name = "Toolworks" }]
 dependencies = [
   "beautifulsoup4>=4.12,<5",
+  "certifi>=2026.10.18",
   "markdownify>=0.14,<2",
   "onnxruntime>=1.20,<2",
   "pathspec>=0.12,<1",
-  "pillow>=11,<13",
+  "pillow>=13.0.0,<14",
   "pypdfium2>=4.30,<6",
   "python-docx>=1.1,<2",
   "python-multipart>=0.0.20,<1",
-  "rapidocr>=3,<4",
-  "starlette>=1,<2",
+  "rapidocr>=3.10.0,<3.11",
+  "starlette>=1.10.0,<2",
+  "soupsieve>=4.0.0,<5",
   "uvicorn>=0.30,<1",
+  # RapidOCR uses requests. Keep its HTTP stack patched in pip installs too.
+  "urllib3>=2.8.0,<3",
 ]
 
 [project.scripts]
@@ -29,7 +33,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-  "httpx>=0.28,<1",
+  "httpx2>=2.16.2,<3",
   "mypy>=1.15,<2",
   "pytest>=8.3,<10",
   "pytest-cov>=6,<8",

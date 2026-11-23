@@ -1,7 +1,7 @@
 {
   "name": "automd-frontend",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "scripts": {
     "build": "esbuild src/app.ts --bundle --format=esm --target=es2022 --outfile=../src/automd/web/static/app.js",
@@ -9,8 +9,7 @@
     "dev": "esbuild src/app.ts --bundle --format=esm --target=es2022 --sourcemap --watch --outfile=../src/automd/web/static/app.js"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "typescript": "^5.8.0"
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
   }
 }
-

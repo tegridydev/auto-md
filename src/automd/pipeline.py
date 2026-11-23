@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-import re
-import tarfile
 import threading
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .config import LIMITS
-from .extraction import Extractor, UnsupportedFormat
+from .config import LIMITS, SUPPORTED_ARCHIVE_EXTENSIONS
+from .extraction import Extractor
 from .filtering import SourceFilter
 from .models import (
     Artifact,
     Document,
+    JobCancelled,
     ProcessingOptions,
     SkipRecord,
     SourceSpec,
@@ -22,19 +20,17 @@ from .models import (
 )
 from .rendering import build_artifacts
 from .security import (
+    ArchiveBudget,
     SecurityError,
     download_url,
     ensure_regular_file,
     extract_archive,
     github_archive_url,
     safe_filename,
+    validate_source_id,
 )
 
 ProgressCallback = Callable[[str, str, int, int, str, str | None], None]
-
-
-class JobCancelled(RuntimeError):
-    pass
 
 
 @dataclass(slots=True)
@@ -58,8 +54,8 @@ class Pipeline:
         self.extractor = Extractor()
         self.skipped: list[SkipRecord] = []
         self.warnings: list[str] = []
-        self._expanded_bytes = 0
-        self._expanded_entries = 0
+        self._archive_budget = ArchiveBudget(LIMITS.max_archive_entries, LIMITS.max_expanded_bytes)
+        self._remote_bytes = 0
         self._expanded_count = 0
 
     def run(self, sources: list[SourceSpec], options: ProcessingOptions) -> PipelineResult:
@@ -76,6 +72,8 @@ class Pipeline:
             )
             try:
                 staged.extend(self._acquire_source(source, options))
+            except JobCancelled:
+                raise
             except Exception as exc:
                 self.skipped.append(SkipRecord(source.id, source.label, str(exc)))
                 self.warnings.append(f"{source.label}: {exc}")
@@ -88,9 +86,11 @@ class Pipeline:
                 item.source_label.casefold(),
                 item.relative_path.casefold(),
                 item.relative_path,
+                item.source_id,
             )
         )
         documents: list[Document] = []
+        remaining_chars = LIMITS.max_job_chars
         total = len(staged)
         for index, item in enumerate(staged, start=1):
             self._check_cancelled()
@@ -103,14 +103,21 @@ class Pipeline:
                 item.source_id,
             )
             try:
+                if remaining_chars <= 0:
+                    raise SecurityError("Job text budget exhausted")
                 document = self.extractor.extract(item, options)
                 if not document.content.strip():
                     raise ValueError("No readable content")
+                if len(document.content) > remaining_chars:
+                    raise SecurityError("Document exceeds the remaining job text budget")
+                remaining_chars -= len(document.content)
                 documents.append(document)
                 self.warnings.extend(
                     f"{item.relative_path}: {warning}" for warning in document.warnings
                 )
-            except (UnsupportedFormat, ValueError, OSError, SecurityError) as exc:
+            except JobCancelled:
+                raise
+            except (ValueError, OSError) as exc:
                 self.skipped.append(SkipRecord(item.source_id, item.relative_path, str(exc)))
             except Exception as exc:
                 self.skipped.append(
@@ -148,8 +155,7 @@ class Pipeline:
         return PipelineResult(artifacts, documents, self.skipped, self.warnings)
 
     def _acquire_source(self, source: SourceSpec, options: ProcessingOptions) -> list[StagedFile]:
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", source.id):
-            raise SecurityError("Invalid source identifier")
+        validate_source_id(source.id)
         if source.kind == "upload":
             root = self.workspace / "uploads" / source.id
             if not root.is_dir():
@@ -161,10 +167,19 @@ class Pipeline:
             remote_dir = self.workspace / "remote" / source.id
             archive = remote_dir / "repository.zip"
             url = github_archive_url(source.url, source.ref)
-            download_url(url, archive, max_bytes=LIMITS.max_github_bytes)
+            result = download_url(
+                url,
+                archive,
+                github=True,
+                check_cancelled=self._check_cancelled,
+                max_bytes=min(LIMITS.max_github_bytes, LIMITS.max_job_bytes - self._remote_bytes),
+            )
+            self._remote_bytes += result.size
             extracted = self.workspace / "expanded" / source.id / "github"
-            stats = extract_archive(archive, extracted)
-            self._account_archive(stats.entries, stats.expanded_bytes)
+            try:
+                self._expand(archive, extracted)
+            finally:
+                archive.unlink(missing_ok=True)
             root = _collapse_single_root(extracted)
             return self._scan(root, source, options, prefix="", depth=1)
         if source.kind == "web":
@@ -172,29 +187,32 @@ class Pipeline:
                 raise ValueError("Web source is missing its URL")
             parsed = urlsplit(source.url)
             candidate = safe_filename(unquote(Path(parsed.path).name), "web-page")
-            if not Path(candidate).suffix:
-                candidate += ".html"
-            destination = self.workspace / "remote" / source.id / candidate
-            result = download_url(source.url, destination, max_bytes=LIMITS.max_web_bytes)
-            if not (
-                result.content_type.startswith("text/")
-                or result.content_type in {"application/xhtml+xml", "application/xml"}
+            destination = self.workspace / "remote" / source.id / "download"
+            result = download_url(
+                source.url,
+                destination,
+                check_cancelled=self._check_cancelled,
+                max_bytes=min(LIMITS.max_web_bytes, LIMITS.max_job_bytes - self._remote_bytes),
+            )
+            self._remote_bytes += result.size
+            detected_extension = {
+                "text/html": ".html",
+                "application/xhtml+xml": ".html",
+                "text/markdown": ".md",
+                "text/css": ".css",
+                "text/csv": ".csv",
+                "application/xml": ".xml",
+                "text/xml": ".xml",
+            }.get(result.content_type, ".txt")
+            # Remote filenames cannot choose a native decoder. Preserve common text extensions.
+            extension = Path(candidate).suffix.lower()
+            if extension != detected_extension and not (
+                result.content_type == "text/plain" and extension in {".txt", ".md"}
             ):
-                raise ValueError(f"Web URL returned unsupported content type {result.content_type}")
-            if result.content_type == "text/plain" and destination.suffix.lower() not in {
-                ".txt",
-                ".md",
-            }:
-                renamed = destination.with_suffix(".txt")
-                destination.rename(renamed)
-                destination = renamed
-            elif "html" in result.content_type and destination.suffix.lower() not in {
-                ".html",
-                ".htm",
-            }:
-                renamed = destination.with_suffix(".html")
-                destination.rename(renamed)
-                destination = renamed
+                candidate = str(Path(candidate).with_suffix(detected_extension))
+            renamed = destination.with_name(candidate)
+            destination.rename(renamed)
+            destination = renamed
             return [
                 StagedFile(
                     source.id,
@@ -215,20 +233,25 @@ class Pipeline:
         prefix: str,
         depth: int,
     ) -> list[StagedFile]:
+        filter_root = (
+            _collapse_single_root(root) if source.kind == "upload" and depth == 0 else root
+        )
         source_filter = SourceFilter(
-            root,
+            filter_root,
             mode=options.filter_mode,
             includes=options.include_patterns,
             excludes=options.exclude_patterns,
         )
         files: list[StagedFile] = []
-        for path in sorted(root.rglob("*"), key=lambda value: (str(value).casefold(), str(value))):
+        for path in root.rglob("*"):
             self._check_cancelled()
             if path.is_symlink() or not path.is_file():
                 continue
             relative = path.relative_to(root).as_posix()
             display_path = f"{prefix}/{relative}".strip("/")
-            if not source_filter.allows(relative):
+            if not path.is_relative_to(filter_root):
+                continue
+            if not source_filter.allows(path.relative_to(filter_root).as_posix()):
                 continue
             try:
                 ensure_regular_file(path)
@@ -252,8 +275,7 @@ class Pipeline:
                     self.workspace / "expanded" / source.id / f"archive-{self._expanded_count}"
                 )
                 try:
-                    stats = extract_archive(path, extracted)
-                    self._account_archive(stats.entries, stats.expanded_bytes)
+                    self._expand(path, extracted)
                     archive_prefix = f"{display_path}"
                     files.extend(
                         self._scan(
@@ -264,7 +286,7 @@ class Pipeline:
                             depth=depth + 1,
                         )
                     )
-                except (ValueError, OSError, SecurityError) as exc:
+                except (ValueError, OSError) as exc:
                     self.skipped.append(SkipRecord(source.id, display_path, str(exc)))
                 continue
             files.append(
@@ -279,13 +301,13 @@ class Pipeline:
             )
         return files
 
-    def _account_archive(self, entries: int, expanded_bytes: int) -> None:
-        self._expanded_entries += entries
-        if self._expanded_entries > LIMITS.max_archive_entries:
-            raise SecurityError("Combined archive entry count exceeds the job limit")
-        self._expanded_bytes += expanded_bytes
-        if self._expanded_bytes > LIMITS.max_expanded_bytes:
-            raise SecurityError("Combined archive expansion exceeds the job limit")
+    def _expand(self, path: Path, destination: Path) -> None:
+        extract_archive(
+            path,
+            destination,
+            budget=self._archive_budget,
+            check_cancelled=self._check_cancelled,
+        )
 
     def _check_cancelled(self) -> None:
         if self.cancel_event.is_set():
@@ -293,10 +315,18 @@ class Pipeline:
 
 
 def _is_archive(path: Path) -> bool:
-    try:
-        return zipfile.is_zipfile(path) or tarfile.is_tarfile(path)
-    except (OSError, tarfile.TarError):
+    suffix = path.suffix.lower()
+    if suffix == ".docx":
         return False
+    if suffix in SUPPORTED_ARCHIVE_EXTENSIONS or suffix in {".tbz", ".tbz2", ".txz"}:
+        return True
+    # Avoid opening ZIP and TAR parsers for every ordinary file in a repository.
+    with path.open("rb") as stream:
+        header = stream.read(512)
+    return (
+        header.startswith((b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00"))
+        or header[257:262] == b"ustar"
+    )
 
 
 def _collapse_single_root(root: Path) -> Path:

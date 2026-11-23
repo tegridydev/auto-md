@@ -67,3 +67,22 @@ def test_rag_bundle_contains_expected_contracts(tmp_path: Path) -> None:
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["schema"] == "automd.rag.v1"
         assert manifest["counts"]["documents"] == 2
+
+
+def test_rag_chunks_bound_long_lines_and_strip_private_url_parts() -> None:
+    item = documents()[0]
+    item.content = "A" * 12_000
+    item.source_url = "https://example.org/file?access_token=sample#private"
+    chunks = build_chunks([item], ProcessingOptions(chunk_target=200, chunk_overlap=20))
+    assert len(chunks) > 1
+    assert all(len(chunk["text"]) < 1_650 for chunk in chunks)
+    assert all(chunk["source"]["url"] == "https://example.org/file" for chunk in chunks)
+    assert all(chunk["text"].startswith("```python\n") for chunk in chunks)
+    assert sum(chunk["text"].count("A") for chunk in chunks) == 12_000
+
+
+def test_rag_chunk_preserves_code_indentation() -> None:
+    item = documents()[0]
+    item.content = "    return 17  "
+    chunk = build_chunks([item], ProcessingOptions())[0]
+    assert "\n    return 17  \n" in chunk["text"]

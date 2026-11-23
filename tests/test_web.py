@@ -66,3 +66,72 @@ def test_mutation_requires_local_session_and_token() -> None:
     with TestClient(app, base_url="http://localhost") as client:
         response = client.post("/api/v1/jobs", data={})
         assert response.status_code == 403
+
+
+def test_invalid_source_id_rejected_before_allocating_job(monkeypatch) -> None:
+    app = create_app()
+    manager = app.state.job_manager
+
+    def unexpected_create(*_args, **_kwargs):
+        raise AssertionError("Invalid source must not reach job creation")
+
+    monkeypatch.setattr(manager, "create", unexpected_create)
+    with TestClient(app, base_url="http://localhost") as client:
+        client.get("/")
+        headers = {"Origin": "http://localhost", "X-AutoMD-Token": app.state.session_token}
+        payload = {
+            "sources": [{"id": "invalid/path", "kind": "upload", "label": "Sample"}],
+            "files": [{"source_id": "invalid/path", "part": "file", "relative_path": "notes.txt"}],
+        }
+        response = client.post(
+            "/api/v1/jobs",
+            data={"spec": json.dumps(payload)},
+            files={"file": ("notes.txt", b"sample")},
+            headers=headers,
+        )
+        assert response.status_code == 400
+        assert list(manager.session_root.iterdir()) == []
+
+
+def test_file_limit_rejects_upload_before_staging(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from automd import web
+
+    monkeypatch.setattr(web, "LIMITS", replace(web.LIMITS, max_file_bytes=8))
+    app = create_app()
+    with TestClient(app, base_url="http://localhost") as client:
+        client.get("/")
+        response = client.post(
+            "/api/v1/jobs",
+            data={"spec": "{}"},
+            files={"file": ("notes.txt", b"x" * 16)},
+            headers={"Origin": "http://localhost", "X-AutoMD-Token": app.state.session_token},
+        )
+        assert response.status_code == 413
+        assert list(app.state.job_manager.session_root.iterdir()) == []
+
+
+def test_streamed_body_limit_does_not_require_content_length(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from automd import web
+
+    monkeypatch.setattr(web, "LIMITS", replace(web.LIMITS, max_job_bytes=8, max_manifest_bytes=8))
+    app = create_app()
+    with TestClient(app, base_url="http://localhost") as client:
+        client.get("/")
+        headers = {
+            "Origin": "http://localhost",
+            "X-AutoMD-Token": app.state.session_token,
+            "Content-Type": "multipart/form-data; boundary=unit-test",
+        }
+
+        def chunks():
+            yield b"--unit-test--\r\n"
+            for _ in range(17):
+                yield b" " * 1024**2
+
+        response = client.post("/api/v1/jobs", content=chunks(), headers=headers)
+        assert response.status_code == 413
+        assert list(app.state.job_manager.session_root.iterdir()) == []

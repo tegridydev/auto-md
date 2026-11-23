@@ -17,6 +17,10 @@ class OcrMode(StrEnum):
     NEVER = "never"
 
 
+class JobCancelled(RuntimeError):
+    """Conversion was stopped by the user or by shutdown."""
+
+
 class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -139,4 +143,6 @@ class ProgressEvent:
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError("patterns must be arrays of strings")
+    if len(value) > 256 or any(len(item) > 512 for item in value):
+        raise ValueError("Too many patterns or an individual pattern is too long")
     return [item.strip() for item in value if item.strip()]
